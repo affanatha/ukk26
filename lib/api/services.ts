@@ -5,6 +5,7 @@ import {
   normalizeReservasi,
   normalizeSpace,
   normalizeUser,
+  filterByCurrentMaker,
   toArray,
   type Diskon,
   type Member,
@@ -55,6 +56,15 @@ export async function login(payload: LoginPayload): Promise<User> {
   const user = normalizeUser(data);
   if (typeof window !== "undefined") {
     window.localStorage.setItem(USER_KEY, JSON.stringify(user));
+    const makerId =
+      data?.maker_id ??
+      data?.user?.maker_id ??
+      data?.maker?.id ??
+      data?.space_owner?.maker_id ??
+      data?.member?.maker_id;
+    if (makerId) {
+      window.localStorage.setItem("coworking_maker_id", String(makerId));
+    }
   }
 
   return user;
@@ -82,7 +92,19 @@ export async function getProfile(): Promise<User> {
   const data = await apiFetch<Record<string, any>>("/api/auth/profile", {
     auth: true,
   });
-  return normalizeUser(data);
+  const user = normalizeUser(data);
+  if (typeof window !== "undefined") {
+    const makerId =
+      data?.maker_id ??
+      data?.user?.maker_id ??
+      data?.maker?.id ??
+      data?.space_owner?.maker_id ??
+      data?.member?.maker_id;
+    if (makerId) {
+      window.localStorage.setItem("coworking_maker_id", String(makerId));
+    }
+  }
+  return user;
 }
 
 /* ================================================================== */
@@ -94,7 +116,7 @@ export async function getSpaces(params?: {
   search?: string;
 }): Promise<Space[]> {
   const data = await apiFetch<unknown>("/api/spaces", { query: params });
-  return toArray(data).map(normalizeSpace);
+  return filterByCurrentMaker(toArray(data).map(normalizeSpace));
 }
 
 export async function getSpace(id: string | number): Promise<Space> {
@@ -123,12 +145,24 @@ export async function checkAvailability(params: {
   jam_mulai: string;
   durasi_jam: number | string;
 }): Promise<Availability> {
-  const data = await apiFetch<Record<string, any>>("/api/spaces/availability", {
+  const data = await apiFetch<any>("/api/spaces/availability", {
     query: params,
   });
 
+  const item = Array.isArray(data)
+    ? data[0]
+    : data?.data && Array.isArray(data.data)
+    ? data.data[0]
+    : data;
+
   const tersedia =
-    data?.tersedia ?? data?.available ?? data?.is_available ?? true;
+    item?.is_available ??
+    item?.tersedia ??
+    item?.available ??
+    data?.tersedia ??
+    data?.available ??
+    data?.is_available ??
+    true;
 
   return {
     tersedia: Boolean(tersedia),
@@ -143,7 +177,7 @@ export async function checkAvailability(params: {
 
 export async function getActiveDiskon(): Promise<Diskon[]> {
   const data = await apiFetch<unknown>("/api/diskon/active");
-  return toArray(data).map(normalizeDiskon);
+  return filterByCurrentMaker(toArray(data).map(normalizeDiskon));
 }
 
 export async function getDiskon(id: string | number): Promise<Diskon> {
@@ -185,7 +219,7 @@ export async function createReservasi(
 
 export async function getMyReservasi(): Promise<Reservasi[]> {
   const data = await apiFetch<unknown>("/api/reservasi/my", { auth: true });
-  return toArray(data).map(normalizeReservasi);
+  return filterByCurrentMaker(toArray(data).map(normalizeReservasi));
 }
 
 export async function getMyHistory(params: {
@@ -196,7 +230,7 @@ export async function getMyHistory(params: {
     auth: true,
     query: params,
   });
-  return toArray(data).map(normalizeReservasi);
+  return filterByCurrentMaker(toArray(data).map(normalizeReservasi));
 }
 
 export async function getReservasi(id: string | number): Promise<Reservasi> {
@@ -223,6 +257,7 @@ export async function getETicket(id: string | number): Promise<ETicket> {
   return {
     reservasi,
     qrValue:
+      data?.qr_code_data ??
       data?.qr_code ??
       data?.qrcode ??
       data?.kode_tiket ??
@@ -244,7 +279,20 @@ export function cancelReservasi(id: string | number) {
 /* ================================================================== */
 
 export async function getAdminProfile(): Promise<Record<string, any>> {
-  return apiFetch<Record<string, any>>("/api/admin/profile", { auth: true });
+  const data = await apiFetch<Record<string, any>>("/api/admin/profile", {
+    auth: true,
+  });
+  if (typeof window !== "undefined") {
+    const makerId =
+      data?.maker_id ??
+      data?.user?.maker_id ??
+      data?.maker?.id ??
+      data?.space_owner?.maker_id;
+    if (makerId) {
+      window.localStorage.setItem("coworking_maker_id", String(makerId));
+    }
+  }
+  return data;
 }
 
 export function updateAdminProfile(payload: {
@@ -268,7 +316,7 @@ export async function getMembers(search?: string): Promise<Member[]> {
     auth: true,
     query: { search },
   });
-  return toArray(data).map(normalizeMember);
+  return filterByCurrentMaker(toArray(data).map(normalizeMember));
 }
 
 export async function getMember(id: string | number): Promise<Member> {
@@ -320,14 +368,27 @@ export type SpacePayload = {
 
 export async function getAdminSpaces(): Promise<Space[]> {
   const data = await apiFetch<unknown>("/api/admin/spaces", { auth: true });
-  return toArray(data).map(normalizeSpace);
+  return filterByCurrentMaker(toArray(data).map(normalizeSpace));
+}
+
+function normalizeTipeSpace(rawTipe?: string): string {
+  const lower = String(rawTipe || "").toLowerCase().trim();
+  if (lower.includes("meet")) return "meeting_room";
+  if (lower.includes("desk")) return "desk";
+  if (lower.includes("office") || lower.includes("private")) return "private_office";
+  return lower || "desk";
 }
 
 export function createSpace(payload: SpacePayload) {
+  const tipe = normalizeTipeSpace(payload.tipe_space);
   return apiFetch<Record<string, any>>("/api/admin/spaces", {
     method: "POST",
     auth: true,
-    body: payload,
+    body: {
+      ...payload,
+      tipe,
+      tipe_space: tipe,
+    },
   });
 }
 
@@ -335,10 +396,14 @@ export function updateSpace(
   id: string | number,
   payload: Partial<SpacePayload>
 ) {
+  const tipe = payload.tipe_space ? normalizeTipeSpace(payload.tipe_space) : undefined;
   return apiFetch<Record<string, any>>(`/api/admin/spaces/${id}`, {
     method: "PUT",
     auth: true,
-    body: payload,
+    body: {
+      ...payload,
+      ...(tipe ? { tipe, tipe_space: tipe } : {}),
+    },
   });
 }
 
@@ -362,14 +427,26 @@ export type DiskonPayload = {
 
 export async function getAdminDiskon(): Promise<Diskon[]> {
   const data = await apiFetch<unknown>("/api/admin/diskon", { auth: true });
-  return toArray(data).map(normalizeDiskon);
+  return filterByCurrentMaker(toArray(data).map(normalizeDiskon));
+}
+
+function toIsoDateString(val?: string, isEnd = false): string | undefined {
+  if (!val) return undefined;
+  if (val.includes("T")) return val;
+  return isEnd ? `${val}T23:59:59.000Z` : `${val}T00:00:00.000Z`;
 }
 
 export function createDiskon(payload: DiskonPayload) {
+  const awal = toIsoDateString(payload.tanggal_mulai, false);
+  const akhir = toIsoDateString(payload.tanggal_berakhir, true);
   return apiFetch<Record<string, any>>("/api/admin/diskon", {
     method: "POST",
     auth: true,
-    body: payload,
+    body: {
+      ...payload,
+      tanggal_awal: awal,
+      tanggal_akhir: akhir,
+    },
   });
 }
 
@@ -377,10 +454,16 @@ export function updateDiskon(
   id: string | number,
   payload: Partial<DiskonPayload>
 ) {
+  const awal = payload.tanggal_mulai ? toIsoDateString(payload.tanggal_mulai, false) : undefined;
+  const akhir = payload.tanggal_berakhir ? toIsoDateString(payload.tanggal_berakhir, true) : undefined;
   return apiFetch<Record<string, any>>(`/api/admin/diskon/${id}`, {
     method: "PUT",
     auth: true,
-    body: payload,
+    body: {
+      ...payload,
+      ...(awal ? { tanggal_awal: awal } : {}),
+      ...(akhir ? { tanggal_akhir: akhir } : {}),
+    },
   });
 }
 
@@ -406,7 +489,7 @@ export async function getAdminReservasi(params?: {
     auth: true,
     query: params,
   });
-  return toArray(data).map(normalizeReservasi);
+  return filterByCurrentMaker(toArray(data).map(normalizeReservasi));
 }
 
 export function updateStatusReservasi(id: string | number, status: string) {

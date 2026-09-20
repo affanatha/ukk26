@@ -22,7 +22,7 @@ import {
 
 const KOSONG = {
   nama_space: "",
-  tipe_space: "",
+  tipe_space: "desk",
   deskripsi: "",
   harga_per_jam: "",
   kapasitas: "",
@@ -262,11 +262,17 @@ export default function AdminSpacesPage() {
           <Input
             label="Tipe Ruangan"
             id="modal-tipe-space"
+            list="tipe-space-options"
             value={form.tipe_space}
             required
             placeholder="Personal Desk / Meeting Room / Private Office"
             onChange={updateField("tipe_space")}
           />
+          <datalist id="tipe-space-options">
+            <option value="Personal Desk" />
+            <option value="Meeting Room" />
+            <option value="Private Office" />
+          </datalist>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">

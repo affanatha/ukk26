@@ -1,4 +1,4 @@
-import { API_ORIGIN } from "./client";
+import { API_ORIGIN, getMakerIdFromToken, USER_KEY } from "./client";
 
 /* ------------------------------------------------------------------ */
 /* Tipe domain                                                         */
@@ -134,10 +134,21 @@ export function normalizeUser(raw: Raw = {}): User {
     role: pick(source, ["role", "level", "tipe_user"], "member"),
     nama: pick(
       source,
-      ["nama_member", "nama_coworking", "nama", "name", "nama_pemilik", "username"],
-      ""
+      [
+        "nama_coworking",
+        "nama_pemilik",
+        "nama_member",
+        "nama",
+        "name",
+        "username",
+      ],
+      pick(
+        raw?.space_owner,
+        ["nama_coworking", "nama_pemilik", "nama"],
+        pick(raw?.member, ["nama_member", "nama"], "")
+      )
     ),
-    raw: source ?? {},
+    raw: { ...(typeof raw === "object" ? raw : {}), ...(typeof source === "object" ? source : {}) },
   };
 }
 
@@ -162,14 +173,25 @@ export function normalizeSpace(raw: Raw = {}): Space {
   };
 }
 
+function normalizeStatus(st: unknown): StatusReservasi {
+  const str = String(st || "").toLowerCase().trim();
+  if (str === "belum_dikonfirm" || str === "belum dikonfirmasi" || str === "pending") return "menunggu";
+  if (str === "diterima" || str === "approved") return "disetujui";
+  if (str === "rejected") return "ditolak";
+  if (str === "cancelled" || str === "canceled") return "dibatalkan";
+  if (str === "finished" || str === "done") return "selesai";
+  if (str === "check_in" || str === "checked_in") return "aktif";
+  return str || "menunggu";
+}
+
 export function normalizeReservasi(raw: Raw = {}): Reservasi {
-  const space = raw?.space ?? raw?.spaces ?? {};
+  const space = raw?.space ?? raw?.spaces ?? raw?.detail_reservasi?.[0]?.space ?? {};
   const member = raw?.member ?? raw?.members ?? {};
 
   return {
     id: num(pick(raw, ["id_reservasi", "id", "reservasi_id"], 0)),
-    kode: pick(raw, ["kode_reservasi", "kode", "code"], ""),
-    idSpace: pick(raw, ["id_space", "space_id"], space?.id_space ?? null),
+    kode: pick(raw, ["booking_code", "kode_reservasi", "kode", "code"], ""),
+    idSpace: pick(raw, ["id_space", "space_id"], space?.id_space ?? space?.id ?? null),
     namaSpace: pick(
       raw,
       ["nama_space"],
@@ -185,9 +207,15 @@ export function normalizeReservasi(raw: Raw = {}): Reservasi {
     jamSelesai: pick(raw, ["jam_selesai", "end_time"], ""),
     durasiJam: num(pick(raw, ["durasi_jam", "durasi", "duration"], 0)),
     total: num(
-      pick(raw, ["total_bayar", "total_harga", "total", "harga_total"], 0)
+      pick(
+        raw,
+        ["total_bayar", "total_harga", "total", "harga_total"],
+        raw?.detail_reservasi?.[0]?.total_harga ??
+          raw?.price_breakdown?.total_harga ??
+          0
+      )
     ),
-    status: pick(raw, ["status", "status_reservasi"], "menunggu"),
+    status: normalizeStatus(pick(raw, ["status", "status_reservasi"], "menunggu")),
     checkIn: pick(raw, ["waktu_check_in", "check_in", "checkin"], null),
     checkOut: pick(raw, ["waktu_check_out", "check_out", "checkout"], null),
     raw,
@@ -201,10 +229,10 @@ export function normalizeDiskon(raw: Raw = {}): Diskon {
     persentase: num(
       pick(raw, ["persentase_diskon", "persentase", "diskon", "percentage"], 0)
     ),
-    tanggalMulai: pick(raw, ["tanggal_mulai", "start_date"], ""),
+    tanggalMulai: pick(raw, ["tanggal_mulai", "tanggal_awal", "start_date"], ""),
     tanggalBerakhir: pick(
       raw,
-      ["tanggal_berakhir", "tanggal_selesai", "end_date"],
+      ["tanggal_berakhir", "tanggal_akhir", "tanggal_selesai", "end_date"],
       ""
     ),
     raw,
@@ -214,7 +242,7 @@ export function normalizeDiskon(raw: Raw = {}): Diskon {
 export function normalizeMember(raw: Raw = {}): Member {
   return {
     id: num(pick(raw, ["id_member", "id"], 0)),
-    username: pick(raw, ["username"], ""),
+    username: pick(raw, ["username", "user_name"], raw?.user?.username ?? ""),
     nama: pick(raw, ["nama_member", "nama", "name"], ""),
     instansi: pick(raw, ["instansi", "institution"], ""),
     alamat: pick(raw, ["alamat", "address"], ""),
@@ -242,4 +270,61 @@ export function formatTanggal(value: string): string {
     month: "long",
     year: "numeric",
   });
+}
+
+/**
+ * Filter data agar hanya memuat data yang sesuai dengan maker_id pengguna aktif
+ * (berdasarkan JWT token, localStorage user, atau cached maker id).
+ */
+export function filterByCurrentMaker<T extends { raw?: Record<string, any> }>(
+  items: T[]
+): T[] {
+  if (typeof window === "undefined") return items;
+
+  try {
+    const tokenMakerId = getMakerIdFromToken();
+    let expectedMakerId = tokenMakerId;
+
+    if (!expectedMakerId) {
+      const userJson = window.localStorage.getItem(USER_KEY);
+      if (userJson) {
+        const user = JSON.parse(userJson);
+        expectedMakerId =
+          user?.makerId ??
+          user?.maker_id ??
+          user?.raw?.maker_id ??
+          user?.raw?.id_maker ??
+          user?.raw?.space_owner?.maker_id ??
+          user?.raw?.maker?.id ??
+          user?.raw?.member?.maker_id;
+      }
+    }
+
+    if (!expectedMakerId) {
+      const cached = window.localStorage.getItem("coworking_maker_id");
+      if (cached) expectedMakerId = Number(cached);
+    }
+
+    // Default maker_id untuk APP_KEY di .env (mk_4074a468666d44ee9a1f93067d094d76 adalah maker_id: 70)
+    if (!expectedMakerId) {
+      expectedMakerId = 70;
+    }
+
+    return items.filter((item) => {
+      const raw = item.raw || (item as any);
+      const itemMakerId =
+        raw?.maker_id ??
+        raw?.id_maker ??
+        raw?.makerId ??
+        raw?.space?.maker_id ??
+        raw?.spaces?.maker_id ??
+        raw?.member?.maker_id;
+      if (itemMakerId !== undefined && itemMakerId !== null) {
+        return Number(itemMakerId) === Number(expectedMakerId);
+      }
+      return true;
+    });
+  } catch {
+    return items;
+  }
 }

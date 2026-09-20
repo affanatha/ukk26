@@ -25,13 +25,40 @@ export const API_ORIGIN = (
 /** Batas waktu satu request (ms) supaya UI tidak menggantung selamanya. */
 export const REQUEST_TIMEOUT = 20000;
 
-export const APP_KEY = process.env.NEXT_PUBLIC_APP_KEY ?? "";
+export const DEFAULT_APP_KEY = "mk_4074a468666d44ee9a1f93067d094d76";
+
+export function getAppKey(): string {
+  const envKey = (process.env.NEXT_PUBLIC_APP_KEY ?? "").trim();
+  if (envKey && envKey !== "mk_example_key") {
+    if (typeof window !== "undefined") {
+      const current = window.localStorage.getItem("coworking_app_key");
+      if (current !== envKey) {
+        window.localStorage.setItem("coworking_app_key", envKey);
+      }
+    }
+    return envKey;
+  }
+  if (typeof window !== "undefined") {
+    const fromStorage = window.localStorage.getItem("coworking_app_key");
+    if (fromStorage && fromStorage.trim() && fromStorage.trim() !== "mk_example_key") {
+      return fromStorage.trim();
+    }
+  }
+  return DEFAULT_APP_KEY;
+}
+
+export const APP_KEY =
+  process.env.NEXT_PUBLIC_APP_KEY &&
+  process.env.NEXT_PUBLIC_APP_KEY.trim() !== "mk_example_key"
+    ? process.env.NEXT_PUBLIC_APP_KEY.trim()
+    : DEFAULT_APP_KEY;
 
 export const TOKEN_KEY = "coworking_token";
 export const USER_KEY = "coworking_user";
+export const MAKER_ID_KEY = "coworking_maker_id";
 
 /* ------------------------------------------------------------------ */
-/* Token storage                                                       */
+/* Token & Maker storage                                              */
 /* ------------------------------------------------------------------ */
 
 export function getToken(): string | null {
@@ -44,10 +71,34 @@ export function setToken(token: string) {
   window.localStorage.setItem(TOKEN_KEY, token);
 }
 
+export function getMakerIdFromToken(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const token = getToken();
+    if (!token || !token.includes(".")) return null;
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    const parsed = JSON.parse(jsonPayload);
+    if (parsed?.maker_id) return Number(parsed.maker_id);
+    if (parsed?.id_maker) return Number(parsed.id_maker);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function clearSession() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(TOKEN_KEY);
   window.localStorage.removeItem(USER_KEY);
+  window.localStorage.removeItem(MAKER_ID_KEY);
 }
 
 /* ------------------------------------------------------------------ */
@@ -118,9 +169,13 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const { method = "GET", body, formData, auth = false, query, signal } = options;
 
+  const appKey = getAppKey();
   const headers: Record<string, string> = {};
 
-  if (APP_KEY) headers["x-maker-key"] = APP_KEY;
+  if (appKey) {
+    headers["x-maker-key"] = appKey;
+    headers["X-Maker-Key"] = appKey;
+  }
   if (!formData) headers["Content-Type"] = "application/json";
 
   if (auth) {

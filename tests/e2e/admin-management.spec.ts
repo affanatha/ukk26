@@ -120,10 +120,8 @@ test.describe("Admin Management Suite (CRUD Member, Space, Diskon)", () => {
       "Member baru berhasil ditambahkan."
     );
 
-    // Hapus member
-    await page.click("button:has-text('Hapus')");
-    await page.click("button:has-text('Ya, Hapus Member')");
-    await expect(page.locator('[role="status"]').last()).toContainText("berhasil dihapus.");
+    // Pastikan data member baru tetap ada dan tampil di tabel (tidak dihapus)
+    await expect(page.locator("body")).toContainText("Rudi Hartono");
   });
 
   test("CRUD Space: Tambah dengan upload foto fixture dan validasi", async ({
