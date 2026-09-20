@@ -12,7 +12,8 @@ import { useRouter } from "next/navigation";
 import {
   getProfile,
   getToken,
-  getMakerIdFromToken,
+  getCookie,
+  setCookie,
   clearSession,
   login as loginRequest,
   logout as logoutRequest,
@@ -33,25 +34,16 @@ const AuthContext = createContext<AuthState | null>(null);
 
 function readCachedUser(): User | null {
   if (typeof window === "undefined") return null;
-  const tokenMakerId = getMakerIdFromToken();
-  if (tokenMakerId && tokenMakerId !== 70) {
-    clearSession();
-    return null;
+  let cached = window.localStorage.getItem(USER_KEY);
+  if (!cached) {
+    cached = getCookie(USER_KEY);
+    if (cached) {
+      window.localStorage.setItem(USER_KEY, cached);
+    }
   }
-  const cached = window.localStorage.getItem(USER_KEY);
   if (!cached) return null;
   try {
-    const user = JSON.parse(cached) as User;
-    const userMakerId =
-      user?.raw?.maker_id ??
-      (user?.raw as any)?.user?.maker_id ??
-      (user?.raw as any)?.space_owner?.maker_id ??
-      (user?.raw as any)?.member?.maker_id;
-    if (userMakerId && Number(userMakerId) !== 70) {
-      clearSession();
-      return null;
-    }
-    return user;
+    return JSON.parse(cached) as User;
   } catch {
     return null;
   }
@@ -62,15 +54,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    if (!getToken()) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
-
-    const tokenMakerId = getMakerIdFromToken();
-    if (tokenMakerId && tokenMakerId !== 70) {
-      clearSession();
+    const token = getToken();
+    if (!token) {
       setUser(null);
       setLoading(false);
       return;
@@ -78,23 +63,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const profile = await getProfile();
-      const userMakerId =
-        profile?.raw?.maker_id ??
-        (profile?.raw as any)?.user?.maker_id ??
-        (profile?.raw as any)?.space_owner?.maker_id ??
-        (profile?.raw as any)?.member?.maker_id;
-
-      if (userMakerId && Number(userMakerId) !== 70) {
+      setUser(profile);
+      const profileJson = JSON.stringify(profile);
+      window.localStorage.setItem(USER_KEY, profileJson);
+      setCookie(USER_KEY, profileJson, 7);
+    } catch (err: any) {
+      // Hanya hapus sesi jika backend merespons 401 Unauthorized (token hangus / tidak valid)
+      if (err?.status === 401) {
         clearSession();
         setUser(null);
-        setLoading(false);
-        return;
+      } else {
+        console.warn("Could not refresh profile, keeping cached user session:", err);
       }
-
-      setUser(profile);
-      window.localStorage.setItem(USER_KEY, JSON.stringify(profile));
-    } catch {
-      setUser(null);
     } finally {
       setLoading(false);
     }

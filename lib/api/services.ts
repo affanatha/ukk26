@@ -1,4 +1,11 @@
-import { apiFetch, setToken, clearSession, USER_KEY } from "./client";
+import {
+  apiFetch,
+  setToken,
+  clearSession,
+  setCookie,
+  USER_KEY,
+  MAKER_ID_KEY,
+} from "./client";
 import {
   normalizeDiskon,
   normalizeMember,
@@ -55,7 +62,9 @@ export async function login(payload: LoginPayload): Promise<User> {
 
   const user = normalizeUser(data);
   if (typeof window !== "undefined") {
-    window.localStorage.setItem(USER_KEY, JSON.stringify(user));
+    const userJson = JSON.stringify(user);
+    window.localStorage.setItem(USER_KEY, userJson);
+    setCookie(USER_KEY, userJson, 7);
     const makerId =
       data?.maker_id ??
       data?.user?.maker_id ??
@@ -63,7 +72,8 @@ export async function login(payload: LoginPayload): Promise<User> {
       data?.space_owner?.maker_id ??
       data?.member?.maker_id;
     if (makerId) {
-      window.localStorage.setItem("coworking_maker_id", String(makerId));
+      window.localStorage.setItem(MAKER_ID_KEY, String(makerId));
+      setCookie(MAKER_ID_KEY, String(makerId), 7);
     }
   }
 
@@ -94,6 +104,9 @@ export async function getProfile(): Promise<User> {
   });
   const user = normalizeUser(data);
   if (typeof window !== "undefined") {
+    const userJson = JSON.stringify(user);
+    window.localStorage.setItem(USER_KEY, userJson);
+    setCookie(USER_KEY, userJson, 7);
     const makerId =
       data?.maker_id ??
       data?.user?.maker_id ??
@@ -101,7 +114,8 @@ export async function getProfile(): Promise<User> {
       data?.space_owner?.maker_id ??
       data?.member?.maker_id;
     if (makerId) {
-      window.localStorage.setItem("coworking_maker_id", String(makerId));
+      window.localStorage.setItem(MAKER_ID_KEY, String(makerId));
+      setCookie(MAKER_ID_KEY, String(makerId), 7);
     }
   }
   return user;

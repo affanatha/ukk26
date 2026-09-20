@@ -198,4 +198,68 @@ test.describe("Auth Suite (Register, Login, Role Guards)", () => {
     await page.goto("/admin");
     await expect(page).toHaveURL(/.*\/auth\/Login/);
   });
+
+  test("Session dan cookies tetap tersimpan setelah browser di-reload", async ({
+    page,
+    context,
+  }) => {
+    await page.route("**/api/auth/login", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: true,
+          data: {
+            role: "admin_space",
+            access_token: "fake-jwt-admin-token-reload",
+            nama_coworking: "Malang Space",
+          },
+        }),
+      });
+    });
+
+    await page.route("**/api/auth/profile", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: true,
+          data: {
+            id: 2,
+            role: "admin_space",
+            username: "admin_test",
+            nama: "Admin Malang Space",
+          },
+        }),
+      });
+    });
+
+    await page.goto("/auth/Login");
+    await page.fill("#username", "admin_test");
+    await page.fill("#password", "password123");
+    await page.click("#btn-login");
+
+    await expect(page).toHaveURL(/.*\/admin/);
+
+    // Cek cookies setelah login
+    const cookiesAfterLogin = await context.cookies();
+    const tokenCookie = cookiesAfterLogin.find((c) => c.name === "coworking_token");
+    expect(tokenCookie).toBeDefined();
+    expect(tokenCookie?.value).toBe("fake-jwt-admin-token-reload");
+
+    // Lakukan browser reload / refresh
+    await page.reload();
+
+    // Sesi harus tetap bertahan di /admin (tidak mental ke /auth/Login)
+    await expect(page).toHaveURL(/.*\/admin/);
+
+    // Cookies harus tetap ada setelah reload
+    const cookiesAfterReload = await context.cookies();
+    const tokenCookieAfter = cookiesAfterReload.find(
+      (c) => c.name === "coworking_token"
+    );
+    expect(tokenCookieAfter).toBeDefined();
+    expect(tokenCookieAfter?.value).toBe("fake-jwt-admin-token-reload");
+  });
 });
+

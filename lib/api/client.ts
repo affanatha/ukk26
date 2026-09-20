@@ -58,17 +58,62 @@ export const USER_KEY = "coworking_user";
 export const MAKER_ID_KEY = "coworking_maker_id";
 
 /* ------------------------------------------------------------------ */
+/* Cookie Helpers                                                     */
+/* ------------------------------------------------------------------ */
+
+export function setCookie(name: string, value: string, days: number = 7) {
+  if (typeof document === "undefined") return;
+  const maxAge = days * 24 * 60 * 60;
+  document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(
+    value
+  )}; path=/; max-age=${maxAge}; SameSite=Lax`;
+}
+
+export function getCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const nameEQ = encodeURIComponent(name) + "=";
+  const ca = document.cookie.split(";");
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) === " ") c = c.substring(1, c.length);
+    if (c.indexOf(nameEQ) === 0) {
+      const val = c.substring(nameEQ.length, c.length);
+      try {
+        return decodeURIComponent(val);
+      } catch {
+        return val;
+      }
+    }
+  }
+  return null;
+}
+
+export function removeCookie(name: string) {
+  if (typeof document === "undefined") return;
+  document.cookie = `${encodeURIComponent(name)}=; path=/; max-age=0; SameSite=Lax`;
+}
+
+/* ------------------------------------------------------------------ */
 /* Token & Maker storage                                              */
 /* ------------------------------------------------------------------ */
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(TOKEN_KEY);
+  const localToken = window.localStorage.getItem(TOKEN_KEY);
+  if (localToken) return localToken;
+
+  const cookieToken = getCookie(TOKEN_KEY);
+  if (cookieToken) {
+    window.localStorage.setItem(TOKEN_KEY, cookieToken);
+    return cookieToken;
+  }
+  return null;
 }
 
 export function setToken(token: string) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(TOKEN_KEY, token);
+  setCookie(TOKEN_KEY, token, 7);
 }
 
 export function getMakerIdFromToken(): number | null {
@@ -99,6 +144,9 @@ export function clearSession() {
   window.localStorage.removeItem(TOKEN_KEY);
   window.localStorage.removeItem(USER_KEY);
   window.localStorage.removeItem(MAKER_ID_KEY);
+  removeCookie(TOKEN_KEY);
+  removeCookie(USER_KEY);
+  removeCookie(MAKER_ID_KEY);
 }
 
 /* ------------------------------------------------------------------ */
