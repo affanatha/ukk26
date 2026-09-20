@@ -96,11 +96,29 @@ export function useAuth() {
 
 /**
  * Mengunci halaman untuk role tertentu.
- * Kembalikan `ready = false` selagi sesi masih diperiksa.
+ * Mengembalikan `ready = false` selagi sesi masih diperiksa.
  */
 export function useRequireAuth(roles?: string[]) {
   const { user, loading } = useAuth();
   const router = useRouter();
+
+  const isAllowed = useMemo(() => {
+    if (!user) return false;
+    if (!roles || roles.length === 0) return true;
+
+    const userRole = (user.role || "").toLowerCase();
+    return roles.some((r) => {
+      const allowedRole = r.toLowerCase();
+      if (userRole === allowedRole) return true;
+      if (
+        (allowedRole === "admin" || allowedRole === "admin_space") &&
+        (userRole === "admin" || userRole === "admin_space")
+      ) {
+        return true;
+      }
+      return false;
+    });
+  }, [user, roles]);
 
   useEffect(() => {
     if (loading) return;
@@ -110,13 +128,11 @@ export function useRequireAuth(roles?: string[]) {
       return;
     }
 
-    if (roles && roles.length > 0 && !roles.includes(user.role)) {
-      router.replace(user.role === "member" ? "/member" : "/admin");
+    if (roles && roles.length > 0 && !isAllowed) {
+      const isAdmin = user.role === "admin" || user.role === "admin_space";
+      router.replace(isAdmin ? "/admin" : "/member");
     }
-  }, [user, loading, roles, router]);
+  }, [user, loading, roles, isAllowed, router]);
 
-  const allowed =
-    !!user && (!roles || roles.length === 0 || roles.includes(user.role));
-
-  return { user, ready: !loading && allowed };
+  return { user, ready: !loading && isAllowed };
 }

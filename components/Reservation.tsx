@@ -48,6 +48,8 @@ export default function ReservationCard({
 
           {onCancel && bisaDibatalkan && (
             <button
+              id={`btn-batal-reservasi-${reservasi.id}`}
+              data-testid="btn-batal-reservasi"
               onClick={() => onCancel(reservasi.id)}
               className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
             >
