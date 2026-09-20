@@ -12,6 +12,8 @@ import { useRouter } from "next/navigation";
 import {
   getProfile,
   getToken,
+  getMakerIdFromToken,
+  clearSession,
   login as loginRequest,
   logout as logoutRequest,
   USER_KEY,
@@ -31,10 +33,25 @@ const AuthContext = createContext<AuthState | null>(null);
 
 function readCachedUser(): User | null {
   if (typeof window === "undefined") return null;
+  const tokenMakerId = getMakerIdFromToken();
+  if (tokenMakerId && tokenMakerId !== 70) {
+    clearSession();
+    return null;
+  }
   const cached = window.localStorage.getItem(USER_KEY);
   if (!cached) return null;
   try {
-    return JSON.parse(cached) as User;
+    const user = JSON.parse(cached) as User;
+    const userMakerId =
+      user?.raw?.maker_id ??
+      (user?.raw as any)?.user?.maker_id ??
+      (user?.raw as any)?.space_owner?.maker_id ??
+      (user?.raw as any)?.member?.maker_id;
+    if (userMakerId && Number(userMakerId) !== 70) {
+      clearSession();
+      return null;
+    }
+    return user;
   } catch {
     return null;
   }
@@ -51,8 +68,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const tokenMakerId = getMakerIdFromToken();
+    if (tokenMakerId && tokenMakerId !== 70) {
+      clearSession();
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+
     try {
       const profile = await getProfile();
+      const userMakerId =
+        profile?.raw?.maker_id ??
+        (profile?.raw as any)?.user?.maker_id ??
+        (profile?.raw as any)?.space_owner?.maker_id ??
+        (profile?.raw as any)?.member?.maker_id;
+
+      if (userMakerId && Number(userMakerId) !== 70) {
+        clearSession();
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
       setUser(profile);
       window.localStorage.setItem(USER_KEY, JSON.stringify(profile));
     } catch {
